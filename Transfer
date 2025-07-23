@@ -1,67 +1,41 @@
-import React, { useState } from 'react';
-import axios from 'axios';
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.messages import SystemMessage, HumanMessage
+from WiproLLM import WiproChatModel  # or your custom client
+import os
 
-function App() {
-  const [product, setProduct] = useState('');
-  const [description, setDescription] = useState('');
-  const [output, setOutput] = useState('');
-  const [loading, setLoading] = useState(false);
+app = FastAPI()
 
-  const generateTagline = async () => {
-    setLoading(true);
-    try {
-      const res = await axios.post('http://localhost:8000/agent', {
-        product,
-        description,
-      });
-      setOutput(res.data.response);
-    } catch (e) {
-      setOutput("Error occurred.");
-    } finally {
-      setLoading(false);
-    }
-  };
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-  return (
-    <div className="max-w-xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Marketing Tagline Generator</h1>
+client = ...  # Wipro client setup
+chat = WiproChatModel(client=client, model_name="gpt-4o-mini")
 
-      <div className="mb-4">
-        <label className="block font-medium">Product Name</label>
-        <input
-          className="w-full p-2 border rounded"
-          value={product}
-          onChange={(e) => setProduct(e.target.value)}
-          placeholder="e.g., EcoBottle"
-        />
-      </div>
+@app.post("/agent")
+async def generate_tagline(request: Request):
+    data = await request.json()
+    product = data.get("product", "")
+    description = data.get("description", "")
 
-      <div className="mb-4">
-        <label className="block font-medium">Description</label>
-        <textarea
-          className="w-full p-2 border rounded"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="A reusable, eco-friendly water bottle made from bamboo and steel."
-        />
-      </div>
+    prompt = f"""
+    You are a branding expert. 
+    Generate a catchy marketing tagline for a product called "{product}".
+    The product is described as: {description}.
+    Keep the tagline short and creative.
+    """
 
-      <button
-        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-        onClick={generateTagline}
-        disabled={loading}
-      >
-        {loading ? "Generating..." : "Generate Tagline"}
-      </button>
+    messages = [
+        SystemMessage(content="You are a helpful branding assistant."),
+        HumanMessage(content=prompt)
+    ]
 
-      {output && (
-        <div className="mt-6 p-4 bg-gray-100 rounded border">
-          <h2 className="font-semibold mb-2">Generated Tagline:</h2>
-          <p>{output}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default App;
+    try:
+        response = chat.invoke(messages)
+        return {"response": response.content}
+    except Exception as e:
+        return {"response": f"Agent Error: {str(e)}"}
