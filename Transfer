@@ -1,41 +1,67 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.messages import SystemMessage, HumanMessage
-from WiproLLM import WiproChatModel  # assuming this is the client
-import os
+import React, { useState } from 'react';
+import axios from 'axios';
 
-app = FastAPI()
+function App() {
+  const [product, setProduct] = useState('');
+  const [description, setDescription] = useState('');
+  const [output, setOutput] = useState('');
+  const [loading, setLoading] = useState(false);
 
-# Allow requests from frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Or restrict to your React app
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+  const generateTagline = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post('http://localhost:8000/agent', {
+        product,
+        description,
+      });
+      setOutput(res.data.response);
+    } catch (e) {
+      setOutput("Error occurred.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-# Initialize Wipro Chat Model
-client = ...  # Your Wipro client or API key setup
-chat = WiproChatModel(client=client, model_name="gpt-4o-mini")
+  return (
+    <div className="max-w-xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Marketing Tagline Generator</h1>
 
-@app.post("/agent")
-async def ask_agent(request: Request):
-    data = await request.json()
-    user_input = data.get("message", "")
+      <div className="mb-4">
+        <label className="block font-medium">Product Name</label>
+        <input
+          className="w-full p-2 border rounded"
+          value={product}
+          onChange={(e) => setProduct(e.target.value)}
+          placeholder="e.g., EcoBottle"
+        />
+      </div>
 
-    try:
-        # Wrap in message structure
-        system_message = "You are a helpful AI assistant."
-        human_message = user_input
+      <div className="mb-4">
+        <label className="block font-medium">Description</label>
+        <textarea
+          className="w-full p-2 border rounded"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="A reusable, eco-friendly water bottle made from bamboo and steel."
+        />
+      </div>
 
-        messages = [
-            SystemMessage(content=system_message),
-            HumanMessage(content=human_message)
-        ]
+      <button
+        className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+        onClick={generateTagline}
+        disabled={loading}
+      >
+        {loading ? "Generating..." : "Generate Tagline"}
+      </button>
 
-        # Invoke the model
-        response = chat.invoke(messages)
-        return {"response": response.content}
+      {output && (
+        <div className="mt-6 p-4 bg-gray-100 rounded border">
+          <h2 className="font-semibold mb-2">Generated Tagline:</h2>
+          <p>{output}</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
-    except Exception as e:
-        return {"response": f"❌ Agent Error: {str(e)}"}
+export default App;
