@@ -3,18 +3,33 @@ import { CopilotRuntime, HttpAgent } from "@copilotkit/runtime";
 export const runtime = new CopilotRuntime({
   agents: {
     custom: new HttpAgent({
-      url: "http://localhost:8000/copilotkit_remote", // Backend endpoint
+      url: "http://localhost:8000/copilotkit_remote",
     }),
   },
 });
 
-// src/App.jsx
+
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import { CopilotKit } from "@copilotkit/react-core";
+import { runtime } from "./copilotRuntime";
+import "@copilotkit/react-ui/styles.css";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <CopilotKit runtime={runtime} agent="custom">
+      <App />
+    </CopilotKit>
+  </React.StrictMode>
+);
+
 import { CopilotChat } from "@copilotkit/react-ui";
 
 function App() {
   return (
     <div style={{ padding: "2rem" }}>
-      <h1>AG UI Chat - React + Custom LLM</h1>
+      <h1>AG UI PoC - React + FastAPI + Custom LLM</h1>
       <CopilotChat
         labels={{
           title: "Custom AI Agent",
@@ -28,19 +43,12 @@ function App() {
 export default App;
 
 
-// src/main.jsx
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App.jsx";
-import { CopilotKit } from "@copilotkit/react-core";
-import { runtime } from "./copilotRuntime";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
-import "@copilotkit/react-ui/styles.css"; // Required
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <CopilotKit runtime={runtime} agent="custom">
-      <App />
-    </CopilotKit>
-  </React.StrictMode>
-);
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+  },
+});
