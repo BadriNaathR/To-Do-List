@@ -1,29 +1,46 @@
-from fastapi import FastAPI
-from copilotkit.integrations.fastapi import add_fastapi_endpoint
-from copilotkit import CopilotKitRemoteEndpoint
+import { CopilotRuntime, HttpAgent } from "@copilotkit/runtime";
 
-# === YOUR SDK code integration ===
-from your_sdk import APIClient, Auth, InfoChatModel, SystemMessage, HumanMessage
+export const runtime = new CopilotRuntime({
+  agents: {
+    custom: new HttpAgent({
+      url: "http://localhost:8000/copilotkit_remote", // Backend endpoint
+    }),
+  },
+});
 
-def my_agent_handler(messages):
-    client = APIClient()
-    auth = Auth(client)
-    auth.login("username", "pass")
+// src/App.jsx
+import { CopilotChat } from "@copilotkit/react-ui";
 
-    chat = InfoChatModel(client=client, model_name="gpt-40-mini")
+function App() {
+  return (
+    <div style={{ padding: "2rem" }}>
+      <h1>AG UI Chat - React + Custom LLM</h1>
+      <CopilotChat
+        labels={{
+          title: "Custom AI Agent",
+          initial: "Ask me anything...",
+        }}
+      />
+    </div>
+  );
+}
 
-    formatted = [
-        SystemMessage(m["content"]) if m["role"] == "system"
-        else HumanMessage(m["content"]) for m in messages
-    ]
+export default App;
 
-    response = chat.invoke(formatted)
-    return response.content
 
-sdk = CopilotKitRemoteEndpoint(
-    agents=[{"name": "custom", "handler": my_agent_handler}],
-    actions=[],
-)
+// src/main.jsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App.jsx";
+import { CopilotKit } from "@copilotkit/react-core";
+import { runtime } from "./copilotRuntime";
 
-app = FastAPI()
-add_fastapi_endpoint(app, sdk, "/copilotkit_remote")
+import "@copilotkit/react-ui/styles.css"; // Required
+
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <CopilotKit runtime={runtime} agent="custom">
+      <App />
+    </CopilotKit>
+  </React.StrictMode>
+);
