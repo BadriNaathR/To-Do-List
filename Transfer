@@ -1,41 +1,29 @@
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.messages import SystemMessage, HumanMessage
-from WiproLLM import WiproChatModel  # or your custom client
-import os
+from fastapi import FastAPI
+from copilotkit.integrations.fastapi import add_fastapi_endpoint
+from copilotkit import CopilotKitRemoteEndpoint
 
-app = FastAPI()
+# === YOUR SDK code integration ===
+from your_sdk import APIClient, Auth, InfoChatModel, SystemMessage, HumanMessage
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def my_agent_handler(messages):
+    client = APIClient()
+    auth = Auth(client)
+    auth.login("username", "pass")
 
-client = ...  # Wipro client setup
-chat = WiproChatModel(client=client, model_name="gpt-4o-mini")
+    chat = InfoChatModel(client=client, model_name="gpt-40-mini")
 
-@app.post("/agent")
-async def generate_tagline(request: Request):
-    data = await request.json()
-    product = data.get("product", "")
-    description = data.get("description", "")
-
-    prompt = f"""
-    You are a branding expert. 
-    Generate a catchy marketing tagline for a product called "{product}".
-    The product is described as: {description}.
-    Keep the tagline short and creative.
-    """
-
-    messages = [
-        SystemMessage(content="You are a helpful branding assistant."),
-        HumanMessage(content=prompt)
+    formatted = [
+        SystemMessage(m["content"]) if m["role"] == "system"
+        else HumanMessage(m["content"]) for m in messages
     ]
 
-    try:
-        response = chat.invoke(messages)
-        return {"response": response.content}
-    except Exception as e:
-        return {"response": f"Agent Error: {str(e)}"}
+    response = chat.invoke(formatted)
+    return response.content
+
+sdk = CopilotKitRemoteEndpoint(
+    agents=[{"name": "custom", "handler": my_agent_handler}],
+    actions=[],
+)
+
+app = FastAPI()
+add_fastapi_endpoint(app, sdk, "/copilotkit_remote")
