@@ -1,33 +1,69 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+import asyncio, random, datetime
 
-export async function fetchContainers() {
-  const res = await fetch(`${API_BASE}/api/containers`);
-  return res.json();
-}
+app = FastAPI()
 
-export async function fetchHistory(containerId, minutes = 60) {
-  const url = new URL(`${API_BASE}/api/metrics/history`);
-  url.searchParams.set("container_id", containerId);
-  url.searchParams.set("minutes", minutes);
-  url.searchParams.set("max_points", 500);
-  const res = await fetch(url);
-  return res.json();
-}
+# allow frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # use http://localhost:5173 in real setup
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# --- Dummy Data ---
+CONTAINERS = [f"container-{i:02d}" for i in range(1, 51)]
 
+def fake_point(cid: str):
+    now = datetime.datetime.utcnow().isoformat()
+    return {
+        "ts": now,
+        "cpu_percent": round(random.uniform(20, 90), 2),
+        "cpu_avg": round(random.uniform(10, 70), 2),
+        "mem_percent": round(random.uniform(30, 95), 2),
+        "pids": random.randint(50, 200),
+    }
 
-const WS_BASE = (import.meta.env.VITE_WS_BASE ?? "ws://localhost:8000") + "/ws/metrics";
+@app.get("/api/containers")
+async def list_containers():
+    """Return list of dummy containers"""
+    return CONTAINERS
 
-export function openMetricsSocket(onMessage) {
-  const ws = new WebSocket(WS_BASE);
-  ws.onopen = () => console.log("WS connected");
-  ws.onmessage = (evt) => {
-    try {
-      const msg = JSON.parse(evt.data);
-      onMessage?.(msg);
-    } catch {}
-  };
-  ws.onclose = () => console.log("WS closed");
-  ws.onerror = (e) => console.error("WS error", e);
-  return ws;
-}
+@app.get("/api/metrics/history")
+async def history(container_id: str, minutes: int = 60, max_points: int = 100):
+    """Return fake history data for a container"""
+    data = []
+    now = datetime.datetime.utcnow()
+    for i in range(max_points):
+        t = now - datetime.timedelta(seconds=(max_points - i) * 10)
+        data.append({
+            "ts": t.isoformat(),
+            "cpu_percent": round(random.uniform(20, 90), 2),
+            "cpu_avg": round(random.uniform(10, 70), 2),
+            "mem_percent": round(random.uniform(30, 95), 2),
+            "pids": random.randint(50, 200),
+        })
+    return data
+
+@app.websocket("/ws/metrics")
+async def ws_metrics(ws: WebSocket):
+    await ws.accept()
+    try:
+        while True:
+            # client may send subscription list but we'll ignore for now
+            try:
+                msg = await asyncio.wait_for(ws.receive_json(), timeout=0.1)
+                print("client sent:", msg)
+            except asyncio.TimeoutError:
+                pass
+
+            # send fake updates every 2 seconds
+            payload = {}
+            for cid in random.sample(CONTAINERS, 5):  # update 5 containers randomly
+                payload[cid] = [fake_point(cid)]
+            await ws.send_json({"type": "append", "data": payload})
+            await asyncio.sleep(2)
+    except WebSocketDisconnect:
+        print("client disconnected")
