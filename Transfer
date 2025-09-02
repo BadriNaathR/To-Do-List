@@ -1,109 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import ContainerCard from "./components/ContainerCard";
-import { fetchContainers, fetchHistory } from "./services/api";
-import { openMetricsSocket } from "./services/ws";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
-const PAGE_SIZE = 9; // show 9 charts per page to keep it smooth
+export async function fetchContainers() {
+  const res = await fetch(`${API_BASE}/api/containers`);
+  return res.json();
+}
 
-export default function App() {
-  const [allContainers, setAllContainers] = useState([]);
-  const [filter, setFilter] = useState("");
-  const [page, setPage] = useState(0);
-  const [series, setSeries] = useState({}); // { [containerId]: [{ts, cpu_percent,...}] }
-  const wsRef = useRef(null);
+export async function fetchHistory(containerId, minutes = 60) {
+  const url = new URL(`${API_BASE}/api/metrics/history`);
+  url.searchParams.set("container_id", containerId);
+  url.searchParams.set("minutes", minutes);
+  url.searchParams.set("max_points", 500);
+  const res = await fetch(url);
+  return res.json();
+}
 
-  // load container list
-  useEffect(() => {
-    (async () => {
-      const list = await fetchContainers();
-      setAllContainers(list);
-      // preload first page history
-      const first = list.slice(0, PAGE_SIZE);
-      await Promise.all(first.map(async (cid) => {
-        const hist = await fetchHistory(cid, 60);
-        setSeries(prev => ({ ...prev, [cid]: hist }));
-      }));
-      // open websocket after initial load
-      wsRef.current = openMetricsSocket((msg) => {
-        if (msg?.type === "append" && msg.data) {
-          setSeries(prev => {
-            const updated = { ...prev };
-            for (const [cid, points] of Object.entries(msg.data)) {
-              const existing = updated[cid] ?? [];
-              const merged = [...existing, ...points];
-              // keep last 1000 points per container
-              updated[cid] = merged.slice(-1000);
-            }
-            return updated;
-          });
-        }
-      });
-      // subscribe to first page
-      wsRef.current?.send(JSON.stringify({ subscribe: first }));
-    })();
-    return () => wsRef.current?.close();
-  }, []);
 
-  // compute filtered list
-  const filtered = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    return f ? allContainers.filter(c => c.toLowerCase().includes(f)) : allContainers;
-  }, [allContainers, filter]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+const WS_BASE = (import.meta.env.VITE_WS_BASE ?? "ws://localhost:8000") + "/ws/metrics";
 
-  // when page changes, fetch history and update WS subscriptions
-  useEffect(() => {
-    (async () => {
-      await Promise.all(current.map(async (cid) => {
-        if (!series[cid]) {
-          const hist = await fetchHistory(cid, 60);
-          setSeries(prev => ({ ...prev, [cid]: hist }));
-        }
-      }));
-      wsRef.current?.send(JSON.stringify({ subscribe: current }));
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, filtered.join("|")]);
-
-  return (
-    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-      <h1 style={{ margin: 0 }}>🧠 Container Performance</h1>
-
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <input
-          placeholder="Search container…"
-          value={filter}
-          onChange={(e) => { setFilter(e.target.value); setPage(0); }}
-          style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd", minWidth: 260 }}
-        />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={() => setPage(p => Math.max(0, p - 1))}
-            disabled={page === 0}
-            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd", background: "white" }}
-          >Prev</button>
-          <span>Page {page + 1} / {pageCount}</span>
-          <button
-            onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
-            disabled={page + 1 >= pageCount}
-            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd", background: "white" }}
-          >Next</button>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
-          gap: 16
-        }}
-      >
-        {current.map((cid) => (
-          <ContainerCard key={cid} name={cid} data={series[cid] ?? []} />
-        ))}
-      </div>
-    </div>
-  );
+export function openMetricsSocket(onMessage) {
+  const ws = new WebSocket(WS_BASE);
+  ws.onopen = () => console.log("WS connected");
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      onMessage?.(msg);
+    } catch {}
+  };
+  ws.onclose = () => console.log("WS closed");
+  ws.onerror = (e) => console.error("WS error", e);
+  return ws;
 }
