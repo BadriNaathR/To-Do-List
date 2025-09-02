@@ -1,41 +1,108 @@
-import { useMemo } from "react";
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ContainerCard from "./components/ContainerCard";
+import { fetchContainers, fetchHistory } from "./services/api";
+import { openMetricsSocket } from "./services/ws";
 
-const COLORS = {
-  cpu_percent: "#e11d48", // rose-600
-  cpu_avg: "#f59e0b",     // amber-500
-  mem_percent: "#10b981", // emerald-500
-  pids: "#3b82f6",        // blue-500
-};
+const PAGE_SIZE = 9; // show 9 charts per page to keep it smooth
 
-export default function ContainerCard({ name, data }) {
-  const chartData = useMemo(() => {
-    return data.map(d => ({
-      ...d,
-      // show hh:mm:ss
-      time: new Date(d.ts).toLocaleTimeString(),
-    }));
-  }, [data]);
+export default function App() {
+  const [allContainers, setAllContainers] = useState([]);
+  const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const [series, setSeries] = useState({}); // { [containerId]: [{ts, cpu_percent,...}] }
+  const wsRef = useRef(null);
+
+  // load container list
+  useEffect(() => {
+    (async () => {
+      const list = await fetchContainers();
+      setAllContainers(list);
+      // preload first page history
+      const first = list.slice(0, PAGE_SIZE);
+      await Promise.all(first.map(async (cid) => {
+        const hist = await fetchHistory(cid, 60);
+        setSeries(prev => ({ ...prev, [cid]: hist }));
+      }));
+      // open websocket after initial load
+      wsRef.current = openMetricsSocket((msg) => {
+        if (msg?.type === "append" && msg.data) {
+          setSeries(prev => {
+            const updated = { ...prev };
+            for (const [cid, points] of Object.entries(msg.data)) {
+              const existing = updated[cid] ?? [];
+              const merged = [...existing, ...points];
+              // keep last 1000 points per container
+              updated[cid] = merged.slice(-1000);
+            }
+            return updated;
+          });
+        }
+      });
+      // subscribe to first page
+      wsRef.current?.send(JSON.stringify({ subscribe: first }));
+    })();
+    return () => wsRef.current?.close();
+  }, []);
+
+  // compute filtered list
+  const filtered = useMemo(() => {
+    const f = filter.trim().toLowerCase();
+    return f ? allContainers.filter(c => c.toLowerCase().includes(f)) : allContainers;
+  }, [allContainers, filter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const current = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  // when page changes, fetch history and update WS subscriptions
+  useEffect(() => {
+    (async () => {
+      await Promise.all(current.map(async (cid) => {
+        if (!series[cid]) {
+          const hist = await fetchHistory(cid, 60);
+          setSeries(prev => ({ ...prev, [cid]: hist }));
+        }
+      }));
+      wsRef.current?.send(JSON.stringify({ subscribe: current }));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, filtered.join("|")]);
 
   return (
-    <div style={{
-      padding: 16, borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-      background: "white", display: "flex", flexDirection: "column", gap: 8
-    }}>
-      <div style={{ fontWeight: 600 }}>{name}</div>
-      <div style={{ width: "100%", height: 240 }}>
-        <ResponsiveContainer>
-          <LineChart data={chartData}>
-            <XAxis dataKey="time" minTickGap={24} />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="cpu_percent" stroke={COLORS.cpu_percent} dot={false} />
-            <Line type="monotone" dataKey="cpu_avg" stroke={COLORS.cpu_avg} dot={false} />
-            <Line type="monotone" dataKey="mem_percent" stroke={COLORS.mem_percent} dot={false} />
-            <Line type="monotone" dataKey="pids" stroke={COLORS.pids} dot={false} yAxisId={0} />
-          </LineChart>
-        </ResponsiveContainer>
+    <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+      <h1 style={{ margin: 0 }}>🧠 Container Performance</h1>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <input
+          placeholder="Search container…"
+          value={filter}
+          onChange={(e) => { setFilter(e.target.value); setPage(0); }}
+          style={{ padding: 10, borderRadius: 12, border: "1px solid #ddd", minWidth: 260 }}
+        />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd", background: "white" }}
+          >Prev</button>
+          <span>Page {page + 1} / {pageCount}</span>
+          <button
+            onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
+            disabled={page + 1 >= pageCount}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd", background: "white" }}
+          >Next</button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+          gap: 16
+        }}
+      >
+        {current.map((cid) => (
+          <ContainerCard key={cid} name={cid} data={series[cid] ?? []} />
+        ))}
       </div>
     </div>
   );
