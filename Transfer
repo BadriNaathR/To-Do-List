@@ -1,69 +1,124 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-import asyncio, random, datetime
+import { useEffect, useMemo, useRef, useState } from "react";
+import ContainerCard from "./components/ContainerCard";
+import { fetchContainers, fetchHistory } from "./services/api";
+import { openMetricsSocket } from "./services/ws";
 
-app = FastAPI()
+const PAGE_SIZE = 10; // show 10 containers per page (2 per row × 5 rows)
 
-# allow frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # use http://localhost:5173 in real setup
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+const COLORS = {
+  cpu_percent: "bg-rose-500",
+  cpu_avg: "bg-amber-500",
+  mem_percent: "bg-emerald-500",
+  pids: "bg-blue-500",
+};
 
-# --- Dummy Data ---
-CONTAINERS = [f"container-{i:02d}" for i in range(1, 51)]
+export default function App() {
+  const [allContainers, setAllContainers] = useState([]);
+  const [filter, setFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const [series, setSeries] = useState({});
+  const wsRef = useRef(null);
 
-def fake_point(cid: str):
-    now = datetime.datetime.utcnow().isoformat()
-    return {
-        "ts": now,
-        "cpu_percent": round(random.uniform(20, 90), 2),
-        "cpu_avg": round(random.uniform(10, 70), 2),
-        "mem_percent": round(random.uniform(30, 95), 2),
-        "pids": random.randint(50, 200),
-    }
+  useEffect(() => {
+    (async () => {
+      const list = await fetchContainers();
+      setAllContainers(list);
+      const first = list.slice(0, PAGE_SIZE);
+      await Promise.all(first.map(async (cid) => {
+        const hist = await fetchHistory(cid, 60);
+        setSeries((prev) => ({ ...prev, [cid]: hist }));
+      }));
+      wsRef.current = openMetricsSocket((msg) => {
+        if (msg?.type === "append" && msg.data) {
+          setSeries((prev) => {
+            const updated = { ...prev };
+            for (const [cid, points] of Object.entries(msg.data)) {
+              const existing = updated[cid] ?? [];
+              updated[cid] = [...existing, ...points].slice(-500);
+            }
+            return updated;
+          });
+        }
+      });
+      wsRef.current?.send(JSON.stringify({ subscribe: first }));
+    })();
+    return () => wsRef.current?.close();
+  }, []);
 
-@app.get("/api/containers")
-async def list_containers():
-    """Return list of dummy containers"""
-    return CONTAINERS
+  const filtered = useMemo(() => {
+    const f = filter.trim().toLowerCase();
+    return f ? allContainers.filter((c) => c.toLowerCase().includes(f)) : allContainers;
+  }, [allContainers, filter]);
 
-@app.get("/api/metrics/history")
-async def history(container_id: str, minutes: int = 60, max_points: int = 100):
-    """Return fake history data for a container"""
-    data = []
-    now = datetime.datetime.utcnow()
-    for i in range(max_points):
-        t = now - datetime.timedelta(seconds=(max_points - i) * 10)
-        data.append({
-            "ts": t.isoformat(),
-            "cpu_percent": round(random.uniform(20, 90), 2),
-            "cpu_avg": round(random.uniform(10, 70), 2),
-            "mem_percent": round(random.uniform(30, 95), 2),
-            "pids": random.randint(50, 200),
-        })
-    return data
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const current = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
-@app.websocket("/ws/metrics")
-async def ws_metrics(ws: WebSocket):
-    await ws.accept()
-    try:
-        while True:
-            # client may send subscription list but we'll ignore for now
-            try:
-                msg = await asyncio.wait_for(ws.receive_json(), timeout=0.1)
-                print("client sent:", msg)
-            except asyncio.TimeoutError:
-                pass
+  useEffect(() => {
+    (async () => {
+      await Promise.all(current.map(async (cid) => {
+        if (!series[cid]) {
+          const hist = await fetchHistory(cid, 60);
+          setSeries((prev) => ({ ...prev, [cid]: hist }));
+        }
+      }));
+      wsRef.current?.send(JSON.stringify({ subscribe: current }));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, filtered.join("|")]);
 
-            # send fake updates every 2 seconds
-            payload = {}
-            for cid in random.sample(CONTAINERS, 5):  # update 5 containers randomly
-                payload[cid] = [fake_point(cid)]
-            await ws.send_json({"type": "append", "data": payload})
-            await asyncio.sleep(2)
-    except WebSocketDisconnect:
-        print("client disconnected")
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <h1 className="text-2xl font-bold">🧠 Container Performance</h1>
+
+      {/* Legend once at top */}
+      <div className="flex flex-wrap gap-4 text-sm">
+        {Object.entries(COLORS).map(([key, cls]) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className={`w-4 h-4 rounded-sm ${cls}`}></span>
+            <span className="capitalize">{key.replace("_", " ")}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Search + Pagination */}
+      <div className="flex flex-wrap items-center gap-4">
+        <input
+          placeholder="Search container…"
+          value={filter}
+          onChange={(e) => {
+            setFilter(e.target.value);
+            setPage(0);
+          }}
+          className="px-3 py-2 rounded-lg border border-gray-300 focus:ring focus:ring-blue-200 min-w-[240px]"
+        />
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="px-3 py-1 rounded-lg border border-gray-300 bg-white disabled:opacity-50"
+          >
+            Prev
+          </button>
+          <span className="text-gray-600">
+            Page {page + 1} / {pageCount}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            disabled={page + 1 >= pageCount}
+            className="px-3 py-1 rounded-lg border border-gray-300 bg-white disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
+      {/* Container Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {current.map((cid) => (
+          <ContainerCard key={cid} name={cid} data={series[cid] ?? []} />
+        ))}
+      </div>
+    </div>
+  );
+}
