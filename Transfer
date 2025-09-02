@@ -15,8 +15,6 @@ app.add_middleware(
 
 # --- Dummy Data ---
 CONTAINERS = [f"container-{i:02d}" for i in range(1, 51)]
-
-# store last 10 points per container
 DATA_HISTORY = {cid: [] for cid in CONTAINERS}
 
 def fake_point():
@@ -34,6 +32,11 @@ def add_point(container_id: str):
     # keep only last 10
     DATA_HISTORY[container_id] = DATA_HISTORY[container_id][-10:]
     return point
+
+# ✅ Pre-fill each container with 10 dummy points at startup
+for cid in CONTAINERS:
+    for _ in range(10):
+        add_point(cid)
 
 @app.get("/api/containers")
 async def list_containers():
