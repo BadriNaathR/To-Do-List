@@ -1,54 +1,42 @@
-import { CopilotRuntime, HttpAgent } from "@copilotkit/runtime";
+import { useMemo } from "react";
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from "recharts";
 
-export const runtime = new CopilotRuntime({
-  agents: {
-    custom: new HttpAgent({
-      url: "http://localhost:8000/copilotkit_remote",
-    }),
-  },
-});
+const COLORS = {
+  cpu_percent: "#e11d48", // rose-600
+  cpu_avg: "#f59e0b",     // amber-500
+  mem_percent: "#10b981", // emerald-500
+  pids: "#3b82f6",        // blue-500
+};
 
+export default function ContainerCard({ name, data }) {
+  const chartData = useMemo(() => {
+    return data.map(d => ({
+      ...d,
+      // show hh:mm:ss
+      time: new Date(d.ts).toLocaleTimeString(),
+    }));
+  }, [data]);
 
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App";
-import { CopilotKit } from "@copilotkit/react-core";
-import { runtime } from "./copilotRuntime";
-import "@copilotkit/react-ui/styles.css";
-
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <CopilotKit runtime={runtime} agent="custom">
-      <App />
-    </CopilotKit>
-  </React.StrictMode>
-);
-
-import { CopilotChat } from "@copilotkit/react-ui";
-
-function App() {
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>AG UI PoC - React + FastAPI + Custom LLM</h1>
-      <CopilotChat
-        labels={{
-          title: "Custom AI Agent",
-          initial: "Ask me anything...",
-        }}
-      />
+    <div style={{
+      padding: 16, borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+      background: "white", display: "flex", flexDirection: "column", gap: 8
+    }}>
+      <div style={{ fontWeight: 600 }}>{name}</div>
+      <div style={{ width: "100%", height: 240 }}>
+        <ResponsiveContainer>
+          <LineChart data={chartData}>
+            <XAxis dataKey="time" minTickGap={24} />
+            <YAxis />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="cpu_percent" stroke={COLORS.cpu_percent} dot={false} />
+            <Line type="monotone" dataKey="cpu_avg" stroke={COLORS.cpu_avg} dot={false} />
+            <Line type="monotone" dataKey="mem_percent" stroke={COLORS.mem_percent} dot={false} />
+            <Line type="monotone" dataKey="pids" stroke={COLORS.pids} dot={false} yAxisId={0} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
-
-export default App;
-
-
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173,
-  },
-});
