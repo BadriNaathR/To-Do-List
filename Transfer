@@ -1,86 +1,43 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
-import asyncpg
-import asyncio
-import os
+import { useEffect, useState } from "react";
+import ContainerCard from "./components/ContainerCard";
+import { fetchContainers, fetchHistory } from "./services/api";
 
-app = FastAPI()
+const REFRESH_INTERVAL = 60000; // 1 min
 
-# allow frontend (adjust to your domain if needed)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+export default function App() {
+  const [containers, setContainers] = useState([]);
+  const [series, setSeries] = useState({});
 
-# --- Database connection ---
-DB_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://username:password@localhost:5432/yourdb"
-)
+  useEffect(() => {
+    (async () => {
+      const list = await fetchContainers();
+      setContainers(list);
 
-async def get_pool():
-    if not hasattr(app.state, "pool"):
-        app.state.pool = await asyncpg.create_pool(dsn=DB_URL)
-    return app.state.pool
+      // initial load
+      const initialData = {};
+      for (const cid of list) {
+        initialData[cid] = await fetchHistory(cid);
+      }
+      setSeries(initialData);
 
-# --- REST API ---
+      // polling every 1 min
+      const interval = setInterval(async () => {
+        const updated = {};
+        for (const cid of list) {
+          updated[cid] = await fetchHistory(cid);
+        }
+        setSeries(updated);
+      }, REFRESH_INTERVAL);
 
-@app.get("/api/containers")
-async def list_containers():
-    """Get distinct container names"""
-    pool = await get_pool()
-    rows = await pool.fetch("""SELECT DISTINCT container_name 
-                                FROM public."GenAIPlatform Performance" 
-                                ORDER BY container_name""")
-    return [r["container_name"] for r in rows]
+      return () => clearInterval(interval);
+    })();
+  }, []);
 
-@app.get("/api/metrics/history")
-async def history(container_id: str):
-    """Fetch last 10 minutes data for one container"""
-    pool = await get_pool()
-    rows = await pool.fetch("""
-        SELECT container_name,
-               "timestamp",
-               cpu_percent,
-               memory_percent,
-               pids,
-               cpu_average
-        FROM public."GenAIPlatform Performance"
-        WHERE container_name = $1
-          AND "timestamp" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '10 minutes'
-        ORDER BY "timestamp" DESC
-    """, container_id)
-    return [dict(r) for r in rows]
-
-# --- WebSocket for realtime updates ---
-@app.websocket("/ws/metrics")
-async def ws_metrics(ws: WebSocket):
-    await ws.accept()
-    try:
-        while True:
-            pool = await get_pool()
-            # fetch last 1 min per container (you can tune interval)
-            rows = await pool.fetch("""
-                SELECT container_name,
-                       "timestamp",
-                       cpu_percent,
-                       memory_percent,
-                       pids,
-                       cpu_average
-                FROM public."GenAIPlatform Performance"
-                WHERE "timestamp" >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 minute'
-                ORDER BY container_name, "timestamp" DESC
-            """)
-            payload = {}
-            for r in rows:
-                cid = r["container_name"]
-                if cid not in payload:
-                    payload[cid] = []
-                payload[cid].append(dict(r))
-            await ws.send_json({"type": "append", "data": payload})
-            await asyncio.sleep(5)  # refresh interval
-    except WebSocketDisconnect:
-        print("client disconnected")
+  return (
+    <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      {containers.map((cid) => (
+        <ContainerCard key={cid} name={cid} data={series[cid] ?? []} />
+      ))}
+    </div>
+  );
+}
