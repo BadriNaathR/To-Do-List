@@ -1,127 +1,34 @@
-import { useEffect, useMemo, useState } from "react";
-import ContainerCard from "./components/ContainerCard";
-import { fetchContainers, fetchHistory } from "./services/api";
+// services/api.js
 
-const PAGE_SIZE = 10; // 2 per row × 5 rows
-const REFRESH_INTERVAL = 60000; // 1 min
+const API_BASE = "http://localhost:8000"; // change if backend runs elsewhere
 
-const COLORS = {
-  cpu_percent: "bg-rose-500",
-  cpu_avg: "bg-amber-500",
-  mem_percent: "bg-emerald-500",
-  pids: "bg-blue-500",
-};
+// Fetch all container names
+export async function fetchContainers() {
+  try {
+    const res = await fetch(`${API_BASE}/containers`);
+    if (!res.ok) throw new Error("Failed to fetch containers");
+    return await res.json(); // expected: ["container1", "container2", ...]
+  } catch (err) {
+    console.error("fetchContainers error:", err);
+    return [];
+  }
+}
 
-export default function App() {
-  const [allContainers, setAllContainers] = useState([]);
-  const [filter, setFilter] = useState("");
-  const [page, setPage] = useState(0);
-  const [series, setSeries] = useState({});
-  const [loading, setLoading] = useState(false);
-
-  // Fetch all container names on load
-  useEffect(() => {
-    (async () => {
-      const list = await fetchContainers();
-      setAllContainers(list);
-    })();
-  }, []);
-
-  // Compute filtered list
-  const filtered = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    return f
-      ? allContainers.filter((c) => c.toLowerCase().includes(f))
-      : allContainers;
-  }, [allContainers, filter]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const current = filtered.slice(
-    page * PAGE_SIZE,
-    page * PAGE_SIZE + PAGE_SIZE
-  );
-
-  // Function to fetch latest data for current containers
-  const fetchData = async () => {
-    if (current.length === 0) return;
-    setLoading(true);
-    const updated = {};
-    for (const cid of current) {
-      updated[cid] = await fetchHistory(cid);
-    }
-    setSeries((prev) => ({ ...prev, ...updated }));
-    setLoading(false);
-  };
-
-  // Initial + auto-refresh every 1 min
-  useEffect(() => {
-    fetchData(); // load immediately
-    const interval = setInterval(fetchData, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
-  }, [current.join("|")]); // re-run when page/filter changes
-
-  return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <h1 className="text-2xl font-bold">🧠 Container Performance</h1>
-
-      {/* Legend once at top */}
-      <div className="flex flex-wrap gap-4 text-sm">
-        {Object.entries(COLORS).map(([key, cls]) => (
-          <div key={key} className="flex items-center gap-2">
-            <span className={`w-4 h-4 rounded-sm ${cls}`}></span>
-            <span className="capitalize">{key.replace("_", " ")}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Search + Pagination + Refresh */}
-      <div className="flex flex-wrap items-center gap-4">
-        <input
-          placeholder="Search container…"
-          value={filter}
-          onChange={(e) => {
-            setFilter(e.target.value);
-            setPage(0);
-          }}
-          className="px-3 py-2 rounded-lg border border-gray-300 focus:ring focus:ring-blue-200 min-w-[240px]"
-        />
-
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="px-3 py-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50"
-          >
-            {loading ? "Refreshing..." : "Refresh Now"}
-          </button>
-
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-3 py-1 rounded-lg border border-gray-300 bg-white disabled:opacity-50"
-          >
-            Prev
-          </button>
-          <span className="text-gray-600">
-            Page {page + 1} / {pageCount}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-            disabled={page + 1 >= pageCount}
-            className="px-3 py-1 rounded-lg border border-gray-300 bg-white disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      </div>
-
-      {/* Container Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {current.map((cid) => (
-          <ContainerCard key={cid} name={cid} data={series[cid] ?? []} />
-        ))}
-      </div>
-    </div>
-  );
+// Fetch last 10 mins history for a container
+export async function fetchHistory(containerId) {
+  try {
+    const res = await fetch(`${API_BASE}/containers/${encodeURIComponent(containerId)}/history`);
+    if (!res.ok) throw new Error("Failed to fetch history");
+    return await res.json(); 
+    /* expected: 
+      [
+        { timestamp: "2025-09-02T10:01:00Z", cpu_percent: 23, cpu_average: 18, memory_percent: 54, pids: 142 },
+        { timestamp: "2025-09-02T10:02:00Z", cpu_percent: 25, ... },
+        ...
+      ]
+    */
+  } catch (err) {
+    console.error(`fetchHistory error (${containerId}):`, err);
+    return [];
+  }
 }
