@@ -17,6 +17,7 @@ export default function App() {
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
   const [series, setSeries] = useState({});
+  const [loading, setLoading] = useState(false);
 
   // Fetch all container names on load
   useEffect(() => {
@@ -40,22 +41,21 @@ export default function App() {
     page * PAGE_SIZE + PAGE_SIZE
   );
 
-  // Fetch history for current page (initial + every 1 min)
-  useEffect(() => {
+  // Function to fetch latest data for current containers
+  const fetchData = async () => {
     if (current.length === 0) return;
+    setLoading(true);
+    const updated = {};
+    for (const cid of current) {
+      updated[cid] = await fetchHistory(cid);
+    }
+    setSeries((prev) => ({ ...prev, ...updated }));
+    setLoading(false);
+  };
 
-    const fetchData = async () => {
-      const updated = {};
-      for (const cid of current) {
-        updated[cid] = await fetchHistory(cid);
-      }
-      setSeries((prev) => ({ ...prev, ...updated }));
-    };
-
-    // initial fetch
-    fetchData();
-
-    // auto-refresh every 1 min
+  // Initial + auto-refresh every 1 min
+  useEffect(() => {
+    fetchData(); // load immediately
     const interval = setInterval(fetchData, REFRESH_INTERVAL);
     return () => clearInterval(interval);
   }, [current.join("|")]); // re-run when page/filter changes
@@ -75,7 +75,7 @@ export default function App() {
         ))}
       </div>
 
-      {/* Search + Pagination */}
+      {/* Search + Pagination + Refresh */}
       <div className="flex flex-wrap items-center gap-4">
         <input
           placeholder="Search container…"
@@ -86,7 +86,16 @@ export default function App() {
           }}
           className="px-3 py-2 rounded-lg border border-gray-300 focus:ring focus:ring-blue-200 min-w-[240px]"
         />
+
         <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="px-3 py-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-50"
+          >
+            {loading ? "Refreshing..." : "Refresh Now"}
+          </button>
+
           <button
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={page === 0}
