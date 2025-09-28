@@ -1,24 +1,58 @@
-<ng-template let-uc pTemplate="gridItem">
-  <div class="col-12 md:col-6 lg:col-4 xl:col-3 p-2">
-    <div class="agent-card" (click)="navigate(uc.usecase_id, uc.usecase_name)">
-      <!-- Circular Icon -->
-      <div class="agent-icon">
-        <span class="material-symbols-outlined notranslate" style="font-size:36px;">
-          {{ uc.thumbnail ? '' : 'smart_toy' }}
-        </span>
-        <img *ngIf="uc.thumbnail" class="thumbnail" [src]="uc.thumbnail" />
-      </div>
+.agent-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease;
+  cursor: pointer;
+}
 
-      <!-- Agent Title -->
-      <h3 class="agent-name">{{ uc.usecase_name }}</h3>
+.agent-card:hover {
+  transform: translateY(-4px);
+}
 
-      <!-- Category / Model -->
-      <p class="agent-category">{{ uc.model_name || 'General' }}</p>
+.agent-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 12px;
+  background: #eaf1ff;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
 
-      <!-- View Button -->
-      <button class="view-btn" (click)="navigate(uc.usecase_id, uc.usecase_name); $event.stopPropagation()">
-        View
-      </button>
-    </div>
-  </div>
-</ng-template>
+.agent-icon img.thumbnail {
+  width: 60%;
+  height: 60%;
+  object-fit: contain;
+}
+
+.agent-name {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 10px 0 5px;
+}
+
+.agent-category {
+  font-size: 14px;
+  color: gray;
+  margin-bottom: 15px;
+}
+
+.view-btn {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.view-btn:hover {
+  background: #0056b3;
+}
