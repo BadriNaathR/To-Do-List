@@ -1,34 +1,39 @@
-// services/api.js
-
-const API_BASE = "http://localhost:8000"; // change if backend runs elsewhere
-
-// Fetch all container names
-export async function fetchContainers() {
-  try {
-    const res = await fetch(`${API_BASE}/containers`);
-    if (!res.ok) throw new Error("Failed to fetch containers");
-    return await res.json(); // expected: ["container1", "container2", ...]
-  } catch (err) {
-    console.error("fetchContainers error:", err);
-    return [];
-  }
+.nav-outer {
+  background: #212c38;
+  height: 100%;
+  width: 170px;
+  display: flex;
+  flex-direction: column;
+  padding-top: 10px;
 }
 
-// Fetch last 10 mins history for a container
-export async function fetchHistory(containerId) {
-  try {
-    const res = await fetch(`${API_BASE}/containers/${encodeURIComponent(containerId)}/history`);
-    if (!res.ok) throw new Error("Failed to fetch history");
-    return await res.json(); 
-    /* expected: 
-      [
-        { timestamp: "2025-09-02T10:01:00Z", cpu_percent: 23, cpu_average: 18, memory_percent: 54, pids: 142 },
-        { timestamp: "2025-09-02T10:02:00Z", cpu_percent: 25, ... },
-        ...
-      ]
-    */
-  } catch (err) {
-    console.error(`fetchHistory error (${containerId}):`, err);
-    return [];
-  }
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #ccc;
+  padding: 15px 5px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.item:hover {
+  background: #2d3b4a;
+  color: #fff;
+}
+
+.item-active {
+  background: #007bff;
+  color: white;
+  border-radius: 6px;
+}
+
+.item-img-con {
+  margin-bottom: 5px;
+  font-size: 26px;
+}
+
+.item-text {
+  font-size: 13px;
+  text-align: center;
 }
